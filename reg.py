@@ -95,11 +95,10 @@ async def add_new_user(host, port, queue, path_to_file):
         await writer.drain()
         chat_message = await reader.readline()
         decoded_chat_message = chat_message.decode()
-        if json.loads(decoded_chat_message):
-            await save_user_account(json.loads(decoded_chat_message), path_to_file)
-            raise TkAppClosed('Новый пользователь успешно зарегистрирован в чате.', 'Info')
-        else:
+        if not json.loads(decoded_chat_message):
             raise TkAppClosed('Ошибка добавления нового пользователя в чат!', 'Error')
+        await save_user_account(json.loads(decoded_chat_message), path_to_file)
+        raise TkAppClosed('Новый пользователь успешно зарегистрирован в чате.', 'Info')
 
 
 async def save_user_account(user_params, path_to_file):
