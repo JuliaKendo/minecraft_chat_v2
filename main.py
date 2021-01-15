@@ -23,7 +23,6 @@ logger = logging.getLogger('watchdog_logger')
 
 widgets = contextvars.ContextVar('widgets')
 queues = contextvars.ContextVar('queues')
-context = contextvars.copy_context()
 
 
 @contextlib.asynccontextmanager
@@ -53,7 +52,8 @@ async def autorise(socket_connection, account_hash):
 
 def connect(handle_msgs):
     async def inner(host, port, queue):
-        status_queue = context[queues]['status_updates_queue']
+        context_queues = queues.get()
+        status_queue = context_queues['status_updates_queue']
         status_queue.put_nowait(gui.ReadConnectionStateChanged.INITIATED)
         async with open_socket(host, port) as socket_connection:
             status_queue.put_nowait(gui.ReadConnectionStateChanged.ESTABLISHED)
@@ -63,11 +63,12 @@ def connect(handle_msgs):
 
 def authorise_and_connect(handle_msgs):
     async def inner(host, port, account_hash, queue):
-        status_queue = context[queues]['status_updates_queue']
+        context_queues = queues.get()
+        status_queue = context_queues['status_updates_queue']
         status_queue.put_nowait(gui.SendingConnectionStateChanged.INITIATED)
         async with open_socket(host, port) as socket_connection:
-            sending_queue = context[queues]['sending_queue']
-            watchdog_queue = context[queues]['watchdog_queue']
+            sending_queue = context_queues['sending_queue']
+            watchdog_queue = context_queues['watchdog_queue']
             user_name = await autorise(socket_connection, account_hash)
             sending_queue.put_nowait(f'Выполнена авторизация. Пользователь {user_name}.')
             status_queue.put_nowait(gui.NicknameReceived(user_name))
@@ -79,6 +80,7 @@ def authorise_and_connect(handle_msgs):
 
 @connect
 async def read_msgs(socket_connection, queue):
+    context_queues = queues.get()
     reader, _ = socket_connection
     while True:
         chat_message = await reader.readline()
@@ -86,17 +88,18 @@ async def read_msgs(socket_connection, queue):
             continue
         decoded_chat_message = chat_message.decode()
         queue.put_nowait(decoded_chat_message.strip('\n'))
-        context[queues]['watchdog_queue'].put_nowait('New message in chat')
+        context_queues['watchdog_queue'].put_nowait('New message in chat')
 
 
 @authorise_and_connect
 async def send_msgs(socket_connection, queue):
+    context_queues = queues.get()
     _, writer = socket_connection
     while True:
         msg = await queue.get()
         writer.write(f'{msg}\n\n'.encode())
         await writer.drain()
-        context[queues]['watchdog_queue'].put_nowait('Message sent to chat')
+        context_queues['watchdog_queue'].put_nowait('Message sent to chat')
 
 
 @authorise_and_connect
@@ -135,11 +138,12 @@ async def watch_for_connection(watchdog_queue):
 
 
 async def handle_connection(params):
-    messages_queue = context[queues]['messages_queue']
-    sending_queue = context[queues]['sending_queue']
-    status_updates_queue = context[queues]['status_updates_queue']
-    watchdog_queue = context[queues]['watchdog_queue']
-    root_frame, conversation_panel, labels_panel = context[widgets]
+    context_queues = queues.get()
+    messages_queue = context_queues['messages_queue']
+    sending_queue = context_queues['sending_queue']
+    status_updates_queue = context_queues['status_updates_queue']
+    watchdog_queue = context_queues['watchdog_queue']
+    root_frame, conversation_panel, labels_panel = widgets.get()
     async with create_task_group() as tasks_group:
         await tasks_group.spawn(read_msgs, params['host'], params['lport'], messages_queue)
         await tasks_group.spawn(save_msgs, params['history'], messages_queue)
@@ -153,17 +157,14 @@ async def handle_connection(params):
 
 def prepare_connection(reconnect_function):
     async def inner(async_function):
-        context.run(widgets.set, ())
-        context.run(
-            queues.set,
-            {
-                'messages_queue': asyncio.Queue(),
-                'sending_queue': asyncio.Queue(),
-                'watchdog_queue': asyncio.Queue(),
-                'status_updates_queue': asyncio.Queue()
-            }
-        )
-        gui.draw(context)
+        widgets.set(())
+        queues.set({
+            'messages_queue': asyncio.Queue(),
+            'sending_queue': asyncio.Queue(),
+            'watchdog_queue': asyncio.Queue(),
+            'status_updates_queue': asyncio.Queue()
+        })
+        gui.draw(widgets, queues)
         await reconnect_function(async_function)
     return inner
 

@@ -108,8 +108,8 @@ def create_status_panel(root_frame):
     return (nickname_label, status_read_label, status_write_label)
 
 
-def draw(context):
-    queues = context[more_itertools.first(var for var in context if var.name == 'queues')]
+def draw(context_widgets, queues):
+    context_queues = queues.get()
 
     root = tk.Tk()
 
@@ -126,15 +126,14 @@ def draw(context):
     input_field = ttk.Entry(input_frame)
     input_field.pack(side="left", fill=tk.X, expand=True)
 
-    input_field.bind("<Return>", lambda event: process_new_message(input_field, queues['sending_queue']))
+    input_field.bind("<Return>", lambda event: process_new_message(input_field, context_queues['sending_queue']))
 
     send_button = ttk.Button(input_frame)
     send_button["text"] = "Отправить"
-    send_button["command"] = lambda: process_new_message(input_field, queues['sending_queue'])
+    send_button["command"] = lambda: process_new_message(input_field, context_queues['sending_queue'])
     send_button.pack(side="left")
 
     conversation_panel = ScrolledText(root_frame, wrap='none')
     conversation_panel.pack(side="top", fill="both", expand=True)
 
-    widgets = more_itertools.first(var for var in context if var.name == 'widgets')
-    context.run(widgets.set, (root_frame, conversation_panel, status_labels))
+    context_widgets.set((root_frame, conversation_panel, status_labels))
