@@ -57,7 +57,7 @@ def authorise_and_connect(need_autorise=False):
             status_queue = context[queues]['status_updates_queue']
             status_queue.put_nowait(gui.ReadConnectionStateChanged.INITIATED)
             status_queue.put_nowait(gui.SendingConnectionStateChanged.INITIATED)
-            async with open_socket(host, int(port)) as socket_connection:
+            async with open_socket(host, port) as socket_connection:
                 if need_autorise:
                     sending_queue = context[queues]['sending_queue']
                     watchdog_queue = context[queues]['watchdog_queue']
@@ -137,10 +137,10 @@ async def handle_connection(params):
     watchdog_queue = context[queues]['watchdog_queue']
     root_frame, conversation_panel, labels_panel = context[widgets]
     async with create_task_group() as tasks_group:
-        await tasks_group.spawn(read_msgs, params['host'], int(params['lport']), params['hash'], messages_queue)
+        await tasks_group.spawn(read_msgs, params['host'], params['lport'], params['hash'], messages_queue)
         await tasks_group.spawn(save_msgs, params['history'], messages_queue)
-        await tasks_group.spawn(send_msgs, params['host'], int(params['wport']), params['hash'], sending_queue)
-        await tasks_group.spawn(check_the_connection, params['host'], int(params['wport']), params['hash'], sending_queue)
+        await tasks_group.spawn(send_msgs, params['host'], params['wport'], params['hash'], sending_queue)
+        await tasks_group.spawn(check_the_connection, params['host'], params['wport'], params['hash'], sending_queue)
         await tasks_group.spawn(watch_for_connection, watchdog_queue)
         await tasks_group.spawn(gui.update_tk, root_frame)
         await tasks_group.spawn(gui.update_conversation_history, conversation_panel, messages_queue)
@@ -187,8 +187,8 @@ async def reconnect_endlessly(async_function):
 def get_args_parser():
     parser = configargparse.ArgParser()
     parser.add_argument('--host', required=False, default='minechat.dvmn.org', help='chat host', env_var='HOST')
-    parser.add_argument('--lport', required=False, default=5000, help='port', env_var='LISTENING_PORT')
-    parser.add_argument('--wport', required=False, default=5050, help='port', env_var='WRITING_PORT')
+    parser.add_argument('--lport', required=False, default=5000, type=int, help='port', env_var='LISTENING_PORT')
+    parser.add_argument('--wport', required=False, default=5050, type=int, help='port', env_var='WRITING_PORT')
     parser.add_argument('--history', required=False, default='chat_history.txt', help='path to file with history')
     parser.add_argument('--hash', required=False, help='account_hash', env_var='ACCOUNT_HASH')
     return parser

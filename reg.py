@@ -84,7 +84,7 @@ def draw(queue):
 
 
 async def add_new_user(host, port, queue, path_to_file):
-    async with open_socket(host, int(port)) as socket_connection:
+    async with open_socket(host, port) as socket_connection:
         reader, writer = socket_connection
         new_user = await queue.get()
         await reader.readline()
@@ -123,7 +123,7 @@ async def handle_registration(host, port, path_to_file):
 def get_args_parser():
     parser = configargparse.ArgParser()
     parser.add_argument('--host', required=False, default='minechat.dvmn.org', help='chat host', env_var='HOST')
-    parser.add_argument('--port', required=False, default=5050, help='port', env_var='WRITING_PORT')
+    parser.add_argument('--port', required=False, default=5050, help='port', type=int, env_var='WRITING_PORT')
     parser.add_argument('--path', required=False, default='user_info.txt', help='path to file for saving account hash')
     return parser
 

@@ -109,7 +109,7 @@ def create_status_panel(root_frame):
 
 
 def draw(context):
-    queues = context[more_itertools.first(var for var in iter(context) if var.name == 'queues')]
+    queues = context[more_itertools.first(var for var in context if var.name == 'queues')]
 
     root = tk.Tk()
 
@@ -136,5 +136,5 @@ def draw(context):
     conversation_panel = ScrolledText(root_frame, wrap='none')
     conversation_panel.pack(side="top", fill="both", expand=True)
 
-    widgets = more_itertools.first(var for var in iter(context) if var.name == 'widgets')
+    widgets = more_itertools.first(var for var in context if var.name == 'widgets')
     context.run(widgets.set, (root_frame, conversation_panel, status_labels))
