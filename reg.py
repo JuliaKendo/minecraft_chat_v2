@@ -14,11 +14,12 @@ from tkinter import messagebox, ttk
 
 
 class TkAppClosed(Exception):
-    def __init__(self, message):
-        super().__init__(message)
+    def __init__(self, message, type_message='Error'):
+        self.message = message
+        super().__init__(self.message)
         if message:
-            logging.debug(f'Ошибка регистрации нового пользователя в чате: {message}')
-            messagebox.showerror("Error", message)
+            logging.debug(f'{self.message}')
+            messagebox.showerror(type_message, self.message)
 
 
 @contextlib.asynccontextmanager
@@ -96,10 +97,9 @@ async def add_new_user(host, port, queue, path_to_file):
         decoded_chat_message = chat_message.decode()
         if json.loads(decoded_chat_message):
             await save_user_account(json.loads(decoded_chat_message), path_to_file)
-            logging.debug('Новый пользователь успешно зарегистрирован в чате.')
-            raise TkAppClosed('')
+            raise TkAppClosed('Новый пользователь успешно зарегистрирован в чате.', 'Info')
         else:
-            raise TkAppClosed('Ошибка добавления нового пользователя в чат!')
+            raise TkAppClosed('Ошибка добавления нового пользователя в чат!', 'Error')
 
 
 async def save_user_account(user_params, path_to_file):
@@ -134,8 +134,10 @@ def main():
     args = get_args_parser().parse_args()
     try:
         run(handle_registration, args.host, args.port, args.path)
-    except (TkAppClosed, KeyboardInterrupt):
-        sys.stderr.write("Регистрация завершена.\n")
+    except TkAppClosed as er:
+        sys.stderr.write(f'{er.message}\n')
+    except KeyboardInterrupt:
+        sys.stderr.write("Регистрация прервана.\n")
 
 
 if __name__ == "__main__":
