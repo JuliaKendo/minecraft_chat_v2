@@ -28,7 +28,7 @@ context = contextvars.copy_context()
 
 @contextlib.asynccontextmanager
 async def open_socket(host, port):
-    writer = None
+    reader, writer = None, None
     try:
         reader, writer = await asyncio.open_connection(host, port)
         yield (reader, writer)
@@ -51,29 +51,33 @@ async def autorise(socket_connection, account_hash):
     return decoded_chat_message["nickname"]
 
 
-def authorise_and_connect(need_autorise=False):
-    def _authorise_and_connect(handle_msgs):
-        async def inner(host, port, account_hash, queue):
-            status_queue = context[queues]['status_updates_queue']
-            status_queue.put_nowait(gui.ReadConnectionStateChanged.INITIATED)
-            status_queue.put_nowait(gui.SendingConnectionStateChanged.INITIATED)
-            async with open_socket(host, port) as socket_connection:
-                if need_autorise:
-                    sending_queue = context[queues]['sending_queue']
-                    watchdog_queue = context[queues]['watchdog_queue']
-                    user_name = await autorise(socket_connection, account_hash)
-                    sending_queue.put_nowait(f'Выполнена авторизация. Пользователь {user_name}.')
-                    status_queue.put_nowait(gui.NicknameReceived(user_name))
-                    status_queue.put_nowait(gui.SendingConnectionStateChanged.ESTABLISHED)
-                    watchdog_queue.put_nowait('Authorization done')
-                else:
-                    status_queue.put_nowait(gui.ReadConnectionStateChanged.ESTABLISHED)
-                await handle_msgs(socket_connection, queue)
-        return inner
-    return _authorise_and_connect
+def connect(handle_msgs):
+    async def inner(host, port, queue):
+        status_queue = context[queues]['status_updates_queue']
+        status_queue.put_nowait(gui.ReadConnectionStateChanged.INITIATED)
+        async with open_socket(host, port) as socket_connection:
+            status_queue.put_nowait(gui.ReadConnectionStateChanged.ESTABLISHED)
+            await handle_msgs(socket_connection, queue)
+    return inner
 
 
-@authorise_and_connect(need_autorise=False)
+def authorise_and_connect(handle_msgs):
+    async def inner(host, port, account_hash, queue):
+        status_queue = context[queues]['status_updates_queue']
+        status_queue.put_nowait(gui.SendingConnectionStateChanged.INITIATED)
+        async with open_socket(host, port) as socket_connection:
+            sending_queue = context[queues]['sending_queue']
+            watchdog_queue = context[queues]['watchdog_queue']
+            user_name = await autorise(socket_connection, account_hash)
+            sending_queue.put_nowait(f'Выполнена авторизация. Пользователь {user_name}.')
+            status_queue.put_nowait(gui.NicknameReceived(user_name))
+            status_queue.put_nowait(gui.SendingConnectionStateChanged.ESTABLISHED)
+            watchdog_queue.put_nowait('Authorization done')
+            await handle_msgs(socket_connection, queue)
+    return inner
+
+
+@connect
 async def read_msgs(socket_connection, queue):
     reader, _ = socket_connection
     while True:
@@ -85,7 +89,7 @@ async def read_msgs(socket_connection, queue):
         context[queues]['watchdog_queue'].put_nowait('New message in chat')
 
 
-@authorise_and_connect(need_autorise=True)
+@authorise_and_connect
 async def send_msgs(socket_connection, queue):
     _, writer = socket_connection
     while True:
@@ -95,7 +99,7 @@ async def send_msgs(socket_connection, queue):
         context[queues]['watchdog_queue'].put_nowait('Message sent to chat')
 
 
-@authorise_and_connect(need_autorise=False)
+@authorise_and_connect
 async def check_the_connection(socket_connection, queue):
     reader, writer = socket_connection
     while True:
@@ -137,7 +141,7 @@ async def handle_connection(params):
     watchdog_queue = context[queues]['watchdog_queue']
     root_frame, conversation_panel, labels_panel = context[widgets]
     async with create_task_group() as tasks_group:
-        await tasks_group.spawn(read_msgs, params['host'], params['lport'], params['hash'], messages_queue)
+        await tasks_group.spawn(read_msgs, params['host'], params['lport'], messages_queue)
         await tasks_group.spawn(save_msgs, params['history'], messages_queue)
         await tasks_group.spawn(send_msgs, params['host'], params['wport'], params['hash'], sending_queue)
         await tasks_group.spawn(check_the_connection, params['host'], params['wport'], params['hash'], sending_queue)
