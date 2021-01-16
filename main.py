@@ -37,7 +37,7 @@ async def open_socket(host, port):
             await writer.wait_closed()
 
 
-async def autorise(socket_connection, account_hash):
+async def get_user_name(socket_connection, account_hash):
     reader, writer = socket_connection
     await reader.readline()
     writer.write(f'{account_hash}\n'.encode())
@@ -50,7 +50,7 @@ async def autorise(socket_connection, account_hash):
     return decoded_chat_message["nickname"]
 
 
-def connect(handle_msgs):
+def connect_for_reading(handle_msgs):
     async def inner(host, port, queue):
         context_queues = queues.get()
         status_queue = context_queues['status_updates_queue']
@@ -61,25 +61,33 @@ def connect(handle_msgs):
     return inner
 
 
-def authorise_and_connect(handle_msgs):
+def connect_for_sending(handle_msgs):
     async def inner(host, port, account_hash, queue):
         context_queues = queues.get()
         status_queue = context_queues['status_updates_queue']
         status_queue.put_nowait(gui.SendingConnectionStateChanged.INITIATED)
         async with open_socket(host, port) as socket_connection:
-            sending_queue = context_queues['sending_queue']
-            watchdog_queue = context_queues['watchdog_queue']
-            user_name = await autorise(socket_connection, account_hash)
-            sending_queue.put_nowait(f'Выполнена авторизация. Пользователь {user_name}.')
-            status_queue.put_nowait(gui.NicknameReceived(user_name))
             status_queue.put_nowait(gui.SendingConnectionStateChanged.ESTABLISHED)
-            watchdog_queue.put_nowait('Authorization done')
-            await handle_msgs(socket_connection, queue)
+            await handle_msgs(socket_connection, queue, account_hash=account_hash)
     return inner
 
 
-@connect
-async def read_msgs(socket_connection, queue):
+def authorise(handle_msgs):
+    async def inner(socket_connection, queue, **kwargs):
+        context_queues = queues.get()
+        status_queue = context_queues['status_updates_queue']
+        sending_queue = context_queues['sending_queue']
+        watchdog_queue = context_queues['watchdog_queue']
+        user_name = await get_user_name(socket_connection, kwargs['account_hash'])
+        sending_queue.put_nowait(f'Выполнена авторизация. Пользователь {user_name}.')
+        status_queue.put_nowait(gui.NicknameReceived(user_name))
+        watchdog_queue.put_nowait('Authorization done')
+        await handle_msgs(socket_connection, queue)
+    return inner
+
+
+@connect_for_reading
+async def read_msgs(socket_connection, queue, **kwargs):
     context_queues = queues.get()
     reader, _ = socket_connection
     while True:
@@ -91,8 +99,9 @@ async def read_msgs(socket_connection, queue):
         context_queues['watchdog_queue'].put_nowait('New message in chat')
 
 
-@authorise_and_connect
-async def send_msgs(socket_connection, queue):
+@connect_for_sending
+@authorise
+async def send_msgs(socket_connection, queue, **kwargs):
     context_queues = queues.get()
     _, writer = socket_connection
     while True:
@@ -102,8 +111,8 @@ async def send_msgs(socket_connection, queue):
         context_queues['watchdog_queue'].put_nowait('Message sent to chat')
 
 
-@authorise_and_connect
-async def check_the_connection(socket_connection, queue):
+@connect_for_sending
+async def check_the_connection(socket_connection, queue, **kwargs):
     reader, writer = socket_connection
     while True:
         async with timeout(CHECK_CONN_TIMEOUT) as time_out:
@@ -117,7 +126,7 @@ async def check_the_connection(socket_connection, queue):
                     raise ConnectionError
 
 
-async def save_msgs(path_to_history, queue):
+async def save_msgs(path_to_history, queue, **kwargs):
     async with aiofiles.open(path_to_history, 'a') as file_handler:
         while True:
             msg = await queue.get()
@@ -125,7 +134,7 @@ async def save_msgs(path_to_history, queue):
             await file_handler.write(f'[{formatted_date}] {msg}\n')
 
 
-async def watch_for_connection(watchdog_queue):
+async def watch_for_connection(watchdog_queue, **kwargs):
     while True:
         async with timeout(WATCHDOG_TIMEOUT) as time_out:
             try:
